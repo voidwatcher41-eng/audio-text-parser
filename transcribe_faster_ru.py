@@ -25,10 +25,11 @@ for fname in files:
     src = os.path.join("audio", fname)
     print(f"\nОбработка: {fname}")
     segments, info = model.transcribe(src, beam_size=5, language=LANGUAGE)
-    out_path = os.path.join("text", fname + ".txt")
-    with open(out_path, "w", encoding="utf-8") as f:
+    base_name, _ = os.path.splitext(fname)
+    out_path = os.path.join("text", base_name + ".txt")
+    with open(out_path, "w", encoding="utf-8") as out_file:
         for seg in segments:
-            f.write(f"[{seg.start:.2f}s -> {seg.end:.2f}s] {seg.text}\n")
+            out_file.write(f"[{seg.start:.2f}s -> {seg.end:.2f}s] {seg.text}\n")
     print(f"✅ Сохранено: {out_path}")
 
 print("\nГотово! Посмотрите результаты в папке 'text'.")
