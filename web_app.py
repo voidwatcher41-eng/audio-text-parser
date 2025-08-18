@@ -1,5 +1,6 @@
 import os
-from flask import Flask, request, render_template_string
+import json
+from flask import Flask, request, render_template_string, Response
 from faster_whisper import WhisperModel
 
 # Ensure folders exist
@@ -21,36 +22,73 @@ TEMPLATE = """
 <!doctype html>
 <title>Whisper Web</title>
 <h1>Загрузите аудиофайл</h1>
-<form method=post enctype=multipart/form-data>
+<form id="upload-form">
   <input type=file name=file>
   <input type=submit value="Распознать">
 </form>
-{% if transcription %}
-<h2>Результат:</h2>
-<pre>{{ transcription }}</pre>
-{% endif %}
+<div id="progress-container" style="width:100%;background:#eee;height:20px;display:none;margin-top:15px;">
+  <div id="progress-bar" style="width:0;height:100%;background:#76c7c0;"></div>
+</div>
+<pre id="result"></pre>
+<script>
+const form = document.getElementById('upload-form');
+const progressContainer = document.getElementById('progress-container');
+const progressBar = document.getElementById('progress-bar');
+const result = document.getElementById('result');
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const formData = new FormData(form);
+  progressContainer.style.display = 'block';
+  progressBar.style.width = '0%';
+  result.textContent = '';
+  const response = await fetch('/transcribe', {method:'POST', body: formData});
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const {value, done} = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, {stream: true});
+    const parts = buffer.split('\n\n');
+    buffer = parts.pop();
+    for (const part of parts) {
+      if (part.startsWith('data:')) {
+        const data = JSON.parse(part.slice(5));
+        progressBar.style.width = data.progress + '%';
+        result.textContent = data.text;
+      }
+    }
+  }
+});
+</script>
 """
 
-@app.route("/", methods=["GET", "POST"])
+@app.route("/", methods=["GET"])
 def index():
-    if request.method == "POST":
-        uploaded = request.files.get("file")
-        if not uploaded or uploaded.filename == "":
-            return "Файл не выбран", 400
-        src_path = os.path.join("audio", uploaded.filename)
-        uploaded.save(src_path)
+    return render_template_string(TEMPLATE)
 
+@app.route("/transcribe", methods=["POST"])
+def transcribe():
+    uploaded = request.files.get("file")
+    if not uploaded or uploaded.filename == "":
+        return "Файл не выбран", 400
+    src_path = os.path.join("audio", uploaded.filename)
+    uploaded.save(src_path)
+
+    def generate():
         segments, info = model.transcribe(src_path, beam_size=5, language=LANGUAGE)
-        lines = [f"[{seg.start:.2f}s -> {seg.end:.2f}s] {seg.text}" for seg in segments]
-        text_result = "\n".join(lines)
-
+        text_result = ""
+        for seg in segments:
+            line = f"[{seg.start:.2f}s -> {seg.end:.2f}s] {seg.text}"
+            text_result += line + "\n"
+            progress = int(seg.end / info.duration * 100)
+            yield f"data: {json.dumps({'progress': progress, 'text': text_result})}\n\n"
         out_path = os.path.join("text", uploaded.filename + ".txt")
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(text_result)
+        yield f"data: {json.dumps({'progress': 100, 'text': text_result})}\n\n"
 
-        return render_template_string(TEMPLATE, transcription=text_result)
-
-    return render_template_string(TEMPLATE, transcription=None)
+    return Response(generate(), mimetype='text/event-stream')
 
 
 if __name__ == "__main__":
