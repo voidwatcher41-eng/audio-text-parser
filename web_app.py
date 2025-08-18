@@ -67,6 +67,17 @@ form.addEventListener('submit', async (e) => {
 def index():
     return render_template_string(TEMPLATE)
 
+
+@app.route("/.well-known/appspecific/com.chrome.devtools.json", methods=["GET"])
+def chrome_devtools_placeholder():
+    """Serve an empty JSON file to avoid 404s from Chrome DevTools.
+
+    Some browsers request this path automatically to check for DevTools
+    configuration.  Returning an empty JSON response prevents 404 errors
+    cluttering the server logs when the app is accessed via a browser.
+    """
+    return Response("{}", mimetype="application/json")
+
 @app.route("/transcribe", methods=["POST"])
 def transcribe():
     uploaded = request.files.get("file")
