@@ -1,11 +1,19 @@
 import os
 import json
+from pathlib import Path
 from flask import Flask, request, render_template_string, Response
+from werkzeug.utils import secure_filename
 from faster_whisper import WhisperModel
 
+# Resolve paths relative to this file to avoid saving uploads elsewhere if the
+# app is run from a different working directory.
+BASE_DIR = Path(__file__).resolve().parent
+AUDIO_DIR = BASE_DIR / "audio"
+TEXT_DIR = BASE_DIR / "text"
+
 # Ensure folders exist
-os.makedirs("audio", exist_ok=True)
-os.makedirs("text", exist_ok=True)
+os.makedirs(AUDIO_DIR, exist_ok=True)
+os.makedirs(TEXT_DIR, exist_ok=True)
 
 # Defaults (RU language)
 MODEL_NAME = os.environ.get("WHISPER_MODEL", "medium")     # tiny/base/small/medium/large-v3
@@ -83,18 +91,19 @@ def transcribe():
     uploaded = request.files.get("file")
     if not uploaded or uploaded.filename == "":
         return "Файл не выбран", 400
-    src_path = os.path.join("audio", uploaded.filename)
+    filename = secure_filename(uploaded.filename)
+    src_path = AUDIO_DIR / filename
     uploaded.save(src_path)
 
     def generate():
-        segments, info = model.transcribe(src_path, beam_size=5, language=LANGUAGE)
+        segments, info = model.transcribe(str(src_path), beam_size=5, language=LANGUAGE)
         text_result = ""
         for seg in segments:
             line = f"[{seg.start:.2f}s -> {seg.end:.2f}s] {seg.text}"
             text_result += line + "\n"
             progress = int(seg.end / info.duration * 100)
             yield f"data: {json.dumps({'progress': progress, 'text': text_result})}\n\n"
-        out_path = os.path.join("text", uploaded.filename + ".txt")
+        out_path = TEXT_DIR / f"{filename}.txt"
         with open(out_path, "w", encoding="utf-8") as f:
             f.write(text_result)
         yield f"data: {json.dumps({'progress': 100, 'text': text_result})}\n\n"

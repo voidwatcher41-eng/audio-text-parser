@@ -1,10 +1,17 @@
 
 import os
+from pathlib import Path
 from faster_whisper import WhisperModel
 
+# Resolve paths relative to this file to avoid surprises when the script is
+# executed from a different working directory.
+BASE_DIR = Path(__file__).resolve().parent
+AUDIO_DIR = BASE_DIR / "audio"
+TEXT_DIR = BASE_DIR / "text"
+
 # Ensure folders exist
-os.makedirs("audio", exist_ok=True)
-os.makedirs("text", exist_ok=True)
+os.makedirs(AUDIO_DIR, exist_ok=True)
+os.makedirs(TEXT_DIR, exist_ok=True)
 
 # Defaults (RU language)
 MODEL_NAME = os.environ.get("WHISPER_MODEL", "medium")     # tiny/base/small/medium/large-v3
@@ -16,17 +23,15 @@ print(f"Loading Faster-Whisper: model={MODEL_NAME}, device={DEVICE}, compute={CO
 model = WhisperModel(MODEL_NAME, device=DEVICE, compute_type=COMPUTE_TYPE)
 
 SUPPORTED = (".mp3", ".wav", ".m4a", ".mp4", ".flac", ".ogg", ".wma", ".aac", ".mkv")
-files = [f for f in os.listdir("audio") if f.lower().endswith(SUPPORTED)]
+files = [p for p in AUDIO_DIR.iterdir() if p.suffix.lower() in SUPPORTED]
 if not files:
     print("Положите аудиофайлы в папку 'audio' и запустите снова.")
     raise SystemExit(0)
 
-for fname in files:
-    src = os.path.join("audio", fname)
-    print(f"\nОбработка: {fname}")
-    segments, info = model.transcribe(src, beam_size=5, language=LANGUAGE)
-    base_name, _ = os.path.splitext(fname)
-    out_path = os.path.join("text", base_name + ".txt")
+for src in files:
+    print(f"\nОбработка: {src.name}")
+    segments, info = model.transcribe(str(src), beam_size=5, language=LANGUAGE)
+    out_path = TEXT_DIR / f"{src.stem}.txt"
     with open(out_path, "w", encoding="utf-8") as out_file:
         for seg in segments:
             out_file.write(f"[{seg.start:.2f}s -> {seg.end:.2f}s] {seg.text}\n")
